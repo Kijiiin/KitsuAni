@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AniList · Explorer</title>
-    <!-- Font & base style -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
@@ -248,6 +247,15 @@
             padding-top: 1.5rem;
             text-align: center;
         }
+        .login-prompt {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 4rem 0;
+        }
+        .login-prompt .btn {
+            font-size: 1.1rem;
+            padding: 0.8rem 2rem;
+        }
         @media (max-width: 640px) {
             header { flex-direction: column; align-items: stretch; }
             .filter-group { flex-wrap: wrap; justify-content: center; }
@@ -260,7 +268,7 @@
 <header>
     <h1>📺 AniList</h1>
     <div class="user-area" id="userArea">
-        <!-- dinamico -->
+        <!-- Il pulsante di login apparirà qui -->
     </div>
 </header>
 
@@ -314,16 +322,15 @@
 <script>
     (function() {
         // ---------- CONFIG ----------
-        const CLIENT_ID = '19494';  // ID pubblico di esempio per AniList (sostituisci con il tuo se vuoi)
+        // Client ID pubblico di AniList (funziona per test)
+        const CLIENT_ID = '19494';
         const REDIRECT_URI = window.location.origin + window.location.pathname;
         const AUTH_URL = `https://anilist.co/api/v2/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=token`;
 
         // Stato dell'app
         let accessToken = null;
-        let currentUser = null;    // { id, name, avatar }
-        let currentTab = 'search'; // 'search' | 'mylist'
-        let lastSearchQuery = '';
-        let lastFilters = { format: '', status: '', season: '' };
+        let currentUser = null;
+        let currentTab = 'search';
 
         // Riferimenti DOM
         const userArea = document.getElementById('userArea');
@@ -346,11 +353,9 @@
             };
         }
 
-        // Salva token e rimuove hash dall'URL
         function storeToken(token) {
             accessToken = token;
             if (token) {
-                // rimuovi hash per pulizia
                 window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
             }
         }
@@ -377,7 +382,6 @@
             return json.data;
         }
 
-        // Ottieni utente corrente (con accessToken)
         async function fetchCurrentUser() {
             if (!accessToken) return null;
             const query = `
@@ -391,17 +395,13 @@
             `;
             try {
                 const data = await anilistFetch(query);
-                if (data?.Viewer) {
-                    return data.Viewer;
-                }
-                return null;
+                return data?.Viewer || null;
             } catch (e) {
                 console.warn('Impossibile recuperare utente:', e);
                 return null;
             }
         }
 
-        // Cerca anime (con filtri)
         async function searchAnime(query, format, status, season) {
             const searchQuery = `
                 query ($search: String, $format: MediaFormat, $status: MediaStatus, $season: MediaSeason) {
@@ -436,9 +436,8 @@
             return data?.Page?.media || [];
         }
 
-        // Ottieni la lista dell'utente (anime nella lista)
         async function fetchMyAnimeList() {
-            if (!accessToken) {
+            if (!accessToken || !currentUser) {
                 throw new Error('Non autenticato');
             }
             const query = `
@@ -464,17 +463,13 @@
                     }
                 }
             `;
-            // prendiamo l'id utente da currentUser
-            if (!currentUser) throw new Error('Utente non caricato');
             const variables = { userId: currentUser.id };
             const data = await anilistFetch(query, variables);
             const lists = data?.MediaListCollection?.lists || [];
-            // estrae tutti gli entry media
             const entries = [];
             for (const list of lists) {
                 for (const entry of list.entries) {
                     if (entry.media) {
-                        // aggiungiamo lo stato dalla entry (es. CURRENT, COMPLETED, ecc)
                         entries.push({
                             ...entry.media,
                             listStatus: entry.status,
@@ -488,7 +483,7 @@
         }
 
         // ---------- RENDER ----------
-        function renderResults(mediaList, title = 'Risultati') {
+        function renderResults(mediaList) {
             if (!mediaList || mediaList.length === 0) {
                 resultsContainer.innerHTML = `<div class="empty">✨ Nessun anime trovato</div>`;
                 return;
@@ -503,7 +498,7 @@
                 const episodes = item.episodes || '?';
                 html += `
                     <div class="card">
-                        <img src="${cover}" alt="${titleStr}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22300%22%3E%3Crect fill=%22%23d1d9e6%22 width=%22200%22 height=%22300%22/%3E%3Ctext x=%2220%22 y=%22160%22 font-family=%22Inter%22 font-size=%2214%22 fill=%22333%22%3E%3C/title%3E%3C/svg%3E'">
+                        <img src="${cover}" alt="${titleStr}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22300%22%3E%3Crect fill=%22%23d1d9e6%22 width=%22200%22 height=%22300%22/%3E%3Ctext x=%2220%22 y=%22160%22 font-family=%22Inter%22 font-size=%2214%22 fill=%22333%22%3ENo image%3C/text%3E%3C/svg%3E'">
                         <div class="card-content">
                             <div class="card-title">${titleStr}</div>
                             <div class="card-meta">
@@ -526,31 +521,149 @@
             resultsContainer.innerHTML = `<div class="loading">⏳ caricamento...</div>`;
         }
 
-        // Aggiorna la UI in base al tab
+        function showLoginPrompt() {
+            resultsContainer.innerHTML = `
+                <div class="login-prompt">
+                    <p style="margin-bottom: 1.5rem; font-size: 1.1rem; color: #475569;">
+                        🔐 Effettua il login per vedere la tua lista personale
+                    </p>
+                    <a href="${AUTH_URL}" class="btn btn-primary" style="font-size: 1.1rem; padding: 0.8rem 2rem;">
+                        🔑 Login con AniList
+                    </a>
+                </div>
+            `;
+        }
+
+        // ---------- AGGIORNA CONTENUTO ----------
         async function refreshContent() {
             if (currentTab === 'search') {
-                // applica filtri e ricerca
                 const query = searchInput.value.trim();
                 const format = filterFormat.value;
                 const status = filterStatus.value;
                 const season = filterSeason.value;
-                lastSearchQuery = query;
-                lastFilters = { format, status, season };
                 showLoading();
                 try {
                     const results = await searchAnime(query, format, status, season);
-                    renderResults(results, 'Risultati ricerca');
+                    renderResults(results);
                 } catch (e) {
                     resultsContainer.innerHTML = `<div class="empty">❌ Errore: ${e.message}</div>`;
                 }
             } else if (currentTab === 'mylist') {
-                if (!accessToken) {
-                    resultsContainer.innerHTML = `<div class="empty">🔐 Effettua il login per vedere la tua lista</div>`;
+                if (!accessToken || !currentUser) {
+                    showLoginPrompt();
                     return;
                 }
                 showLoading();
                 try {
                     const myList = await fetchMyAnimeList();
-                    renderResults(myList, 'La mia lista');
+                    renderResults(myList);
                 } catch (e) {
-                    resultsContainer.innerHTML = `<div class="empty">❌ Errore nel recuperare la lista: ${e.messa
+                    resultsContainer.innerHTML = `<div class="empty">❌ Errore nel recuperare la lista: ${e.message}</div>`;
+                }
+            }
+        }
+
+        // ---------- AUTH UI ----------
+        function updateUserUI(user) {
+            if (user && accessToken) {
+                userArea.innerHTML = `
+                    <div class="user-badge">
+                        <img src="${user.avatar?.large || ''}" alt="${user.name}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2232%22 height=%2232%22%3E%3Crect fill=%22%23cbd5e1%22 width=%2232%22 height=%2232%22/%3E%3Ctext x=%228%22 y=%2222%22 font-size=%2216%22 fill=%22333%22%3E👤%3C/text%3E%3C/svg%3E'">
+                        <span>${user.name}</span>
+                    </div>
+                    <button class="btn btn-danger" id="logoutBtn">Logout</button>
+                `;
+                document.getElementById('logoutBtn')?.addEventListener('click', () => {
+                    accessToken = null;
+                    currentUser = null;
+                    storeToken(null);
+                    updateUserUI(null);
+                    if (currentTab === 'mylist') {
+                        setTab('search');
+                    }
+                    refreshContent();
+                });
+            } else {
+                userArea.innerHTML = `
+                    <a href="${AUTH_URL}" class="btn btn-primary">🔑 Login con AniList</a>
+                `;
+            }
+        }
+
+        // ---------- TAB ----------
+        function setTab(tab) {
+            currentTab = tab;
+            tabBtns.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+            refreshContent();
+        }
+
+        // ---------- INIT ----------
+        async function init() {
+            // Controlla token dall'hash
+            const params = getHashParams();
+            if (params.access_token) {
+                storeToken(params.access_token);
+            }
+
+            // Recupera utente se token presente
+            if (accessToken) {
+                try {
+                    currentUser = await fetchCurrentUser();
+                } catch (e) {
+                    console.warn('Errore fetch utente', e);
+                    accessToken = null;
+                    storeToken(null);
+                }
+            }
+
+            // Aggiorna UI utente
+            updateUserUI(currentUser);
+
+            // Eventi tab
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setTab(btn.dataset.tab);
+                });
+            });
+
+            // Eventi ricerca
+            searchBtn.addEventListener('click', () => {
+                if (currentTab !== 'search') setTab('search');
+                else refreshContent();
+            });
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') searchBtn.click();
+            });
+
+            [filterFormat, filterStatus, filterSeason].forEach(sel => {
+                sel.addEventListener('change', () => {
+                    if (currentTab === 'search') refreshContent();
+                });
+            });
+
+            clearFiltersBtn.addEventListener('click', () => {
+                filterFormat.value = '';
+                filterStatus.value = '';
+                filterSeason.value = '';
+                if (currentTab === 'search') refreshContent();
+            });
+
+            // Carica contenuto iniziale (search)
+            setTab('search');
+
+            // Se autenticato ma currentUser null, riprova
+            if (accessToken && !currentUser) {
+                try {
+                    currentUser = await fetchCurrentUser();
+                    updateUserUI(currentUser);
+                } catch (e) {}
+            }
+        }
+
+        init().catch(console.warn);
+    })();
+</script>
+</body>
+</html>
