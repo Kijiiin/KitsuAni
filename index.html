@@ -505,7 +505,7 @@
             }
             const query = `
                 query ($userId: Int) {
-                    MediaListCollection(userId: $userId, type: ANIME, perPage: 50) {
+                    MediaListCollection(userId: $userId, type: ANIME) {
                         lists {
                             name
                             entries {
