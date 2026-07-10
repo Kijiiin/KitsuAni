@@ -104,6 +104,14 @@
         .btn-danger:hover {
             background: #fee9e9;
         }
+        .btn-success {
+            background: #2d6b4f;
+            border-color: #2d6b4f;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #1f4f3a;
+        }
         .flex-row {
             display: flex;
             flex-wrap: wrap;
@@ -138,7 +146,7 @@
             padding: 0.5rem 1rem;
             border-radius: 60px;
         }
-        .filter-group select, .filter-group input {
+        .filter-group select {
             background: white;
             border: 1px solid #d0d8e3;
             border-radius: 30px;
@@ -256,6 +264,23 @@
             font-size: 1.1rem;
             padding: 0.8rem 2rem;
         }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #1e293b;
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 400px;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
         @media (max-width: 640px) {
             header { flex-direction: column; align-items: stretch; }
             .filter-group { flex-wrap: wrap; justify-content: center; }
@@ -305,7 +330,7 @@
     </div>
 </div>
 
-<!-- Tabs: search / my list -->
+<!-- Tabs -->
 <div class="tabs" style="margin-bottom: 0.5rem;">
     <button class="tab-btn active" data-tab="search">🔍 Cerca</button>
     <button class="tab-btn" data-tab="mylist">📋 La mia lista</button>
@@ -316,21 +341,37 @@
     <div class="loading">Caricamento iniziale...</div>
 </div>
 <div class="footer-note">
-    ⚡ connessione tramite AniList API • OAuth2
+    ⚡ connessione tramite AniList API • OAuth2 con PKCE
 </div>
 
 <script>
     (function() {
         // ---------- CONFIG ----------
-        // Client ID pubblico di AniList (funziona per test)
         const CLIENT_ID = '19494';
         const REDIRECT_URI = window.location.origin + window.location.pathname;
-        const AUTH_URL = `https://anilist.co/api/v2/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=token`;
+        
+        // Genera codice casuale per PKCE
+        function generateCodeVerifier() {
+            const array = new Uint8Array(32);
+            crypto.getRandomValues(array);
+            return Array.from(array, byte => String.fromCharCode(byte)).join('');
+        }
+
+        async function generateCodeChallenge(verifier) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(verifier);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            return btoa(String.fromCharCode(...new Uint8Array(digest)))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+        }
 
         // Stato dell'app
         let accessToken = null;
         let currentUser = null;
         let currentTab = 'search';
+        let codeVerifier = null;
 
         // Riferimenti DOM
         const userArea = document.getElementById('userArea');
@@ -344,20 +385,38 @@
         const tabBtns = document.querySelectorAll('.tab-btn');
 
         // ---------- UTILITY ----------
-        function getHashParams() {
-            const hash = window.location.hash.substring(1);
-            const params = new URLSearchParams(hash);
+        function getQueryParams() {
+            const params = new URLSearchParams(window.location.search);
             return {
-                access_token: params.get('access_token'),
-                token_type: params.get('token_type'),
+                code: params.get('code'),
             };
         }
 
         function storeToken(token) {
             accessToken = token;
             if (token) {
-                window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+                // Rimuovi i parametri dalla URL
+                const url = new URL(window.location);
+                url.search = '';
+                window.history.replaceState(null, document.title, url.toString());
             }
+        }
+
+        function showToast(message, isError = false) {
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+            
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.background = isError ? '#b91c1c' : '#1e293b';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
         }
 
         // ---------- CHIAMATE API ----------
@@ -527,11 +586,61 @@
                     <p style="margin-bottom: 1.5rem; font-size: 1.1rem; color: #475569;">
                         🔐 Effettua il login per vedere la tua lista personale
                     </p>
-                    <a href="${AUTH_URL}" class="btn btn-primary" style="font-size: 1.1rem; padding: 0.8rem 2rem;">
+                    <button class="btn btn-success" id="loginBtn" style="font-size: 1.1rem; padding: 0.8rem 2rem;">
                         🔑 Login con AniList
-                    </a>
+                    </button>
                 </div>
             `;
+            document.getElementById('loginBtn')?.addEventListener('click', startLogin);
+        }
+
+        // ---------- OAuth2 con PKCE ----------
+        async function startLogin() {
+            try {
+                codeVerifier = generateCodeVerifier();
+                const challenge = await generateCodeChallenge(codeVerifier);
+                
+                const authUrl = new URL('https://anilist.co/api/v2/oauth/authorize');
+                authUrl.searchParams.set('client_id', CLIENT_ID);
+                authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
+                authUrl.searchParams.set('response_type', 'code');
+                authUrl.searchParams.set('code_challenge', challenge);
+                authUrl.searchParams.set('code_challenge_method', 'S256');
+                
+                window.location.href = authUrl.toString();
+            } catch (error) {
+                showToast('Errore durante il login: ' + error.message, true);
+            }
+        }
+
+        async function exchangeCodeForToken(code) {
+            try {
+                const response = await fetch('https://anilist.co/api/v2/oauth/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        grant_type: 'authorization_code',
+                        client_id: CLIENT_ID,
+                        redirect_uri: REDIRECT_URI,
+                        code: code,
+                        code_verifier: codeVerifier,
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Errore nello scambio del token');
+                }
+
+                const data = await response.json();
+                return data.access_token;
+            } catch (error) {
+                showToast('Errore durante il login: ' + error.message, true);
+                throw error;
+            }
         }
 
         // ---------- AGGIORNA CONTENUTO ----------
@@ -577,16 +686,19 @@
                     accessToken = null;
                     currentUser = null;
                     storeToken(null);
+                    codeVerifier = null;
                     updateUserUI(null);
                     if (currentTab === 'mylist') {
                         setTab('search');
                     }
                     refreshContent();
+                    showToast('Logout effettuato con successo');
                 });
             } else {
                 userArea.innerHTML = `
-                    <a href="${AUTH_URL}" class="btn btn-primary">🔑 Login con AniList</a>
+                    <button class="btn btn-primary" id="loginBtnHeader">🔑 Login con AniList</button>
                 `;
+                document.getElementById('loginBtnHeader')?.addEventListener('click', startLogin);
             }
         }
 
@@ -601,25 +713,49 @@
 
         // ---------- INIT ----------
         async function init() {
-            // Controlla token dall'hash
-            const params = getHashParams();
-            if (params.access_token) {
-                storeToken(params.access_token);
-            }
-
-            // Recupera utente se token presente
-            if (accessToken) {
+            // Controlla se c'è un codice di autorizzazione
+            const params = getQueryParams();
+            if (params.code && codeVerifier) {
+                showLoading();
                 try {
+                    const token = await exchangeCodeForToken(params.code);
+                    storeToken(token);
+                    showToast('Login effettuato con successo!');
+                    
+                    // Recupera utente
                     currentUser = await fetchCurrentUser();
-                } catch (e) {
-                    console.warn('Errore fetch utente', e);
-                    accessToken = null;
-                    storeToken(null);
+                    updateUserUI(currentUser);
+                    
+                    // Se ero su mylist, aggiorna
+                    if (currentTab === 'mylist') {
+                        refreshContent();
+                    }
+                } catch (error) {
+                    console.error('Errore login:', error);
+                    updateUserUI(null);
                 }
+            } else {
+                // Controlla se c'è un token salvato (dalla sessione precedente)
+                // In questo caso, il token non viene salvato tra le sessioni
+                // quindi ricarichiamo da zero
             }
 
             // Aggiorna UI utente
-            updateUserUI(currentUser);
+            if (!accessToken) {
+                updateUserUI(null);
+            } else {
+                // Se abbiamo un token ma non l'utente, lo recuperiamo
+                if (!currentUser) {
+                    try {
+                        currentUser = await fetchCurrentUser();
+                    } catch (e) {
+                        console.warn('Errore fetch utente', e);
+                        accessToken = null;
+                        storeToken(null);
+                    }
+                }
+                updateUserUI(currentUser);
+            }
 
             // Eventi tab
             tabBtns.forEach(btn => {
@@ -652,16 +788,9 @@
 
             // Carica contenuto iniziale (search)
             setTab('search');
-
-            // Se autenticato ma currentUser null, riprova
-            if (accessToken && !currentUser) {
-                try {
-                    currentUser = await fetchCurrentUser();
-                    updateUserUI(currentUser);
-                } catch (e) {}
-            }
         }
 
+        // Avvia l'app
         init().catch(console.warn);
     })();
 </script>
