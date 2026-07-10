@@ -604,9 +604,12 @@
         // l'Implicit Grant: si ottiene il token direttamente nel redirect, senza
         // nessuna chiamata POST di scambio codice->token.
         function startLogin() {
+            // IMPORTANTE: per l'Implicit Grant di AniList NON va passato redirect_uri
+            // nella query string. AniList usa sempre il Redirect URL configurato nelle
+            // impostazioni del client (developer settings). Includere redirect_uri qui
+            // causa un errore "unsupported_grant_type" lato server.
             const authUrl = new URL('https://anilist.co/api/v2/oauth/authorize');
             authUrl.searchParams.set('client_id', CLIENT_ID);
-            authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
             authUrl.searchParams.set('response_type', 'token');
             window.location.href = authUrl.toString();
         }
