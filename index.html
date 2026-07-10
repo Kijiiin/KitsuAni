@@ -347,7 +347,8 @@
 <script>
     (function() {
         // ---------- CONFIG ----------
-        const CLIENT_ID = '19494';
+        // Client ID pubblico per AniList (funziona con PKCE)
+        const CLIENT_ID = '14559';
         const REDIRECT_URI = window.location.origin + window.location.pathname;
         
         // Genera codice casuale per PKCE
@@ -734,10 +735,6 @@
                     console.error('Errore login:', error);
                     updateUserUI(null);
                 }
-            } else {
-                // Controlla se c'è un token salvato (dalla sessione precedente)
-                // In questo caso, il token non viene salvato tra le sessioni
-                // quindi ricarichiamo da zero
             }
 
             // Aggiorna UI utente
